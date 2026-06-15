@@ -8,6 +8,8 @@ import com.youth.food_sharing.member.service.MemberService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.Authentication
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -54,5 +56,16 @@ class MemberController(
     ): ResponseEntity<BaseResponse<TokenResponse>> {
         val tokenResponse = memberService.login(request)
         return ResponseEntity.ok(BaseResponse.ok(tokenResponse, "로그인에 성공했습니다."))
+    }
+
+    /**
+     * GET /api/v1/members/me
+     *
+     * 인증된 사용자만 접근 가능 (JwtAuthenticationFilter가 SecurityContext에 세팅한 인증 정보 사용)
+     * 임시 동작 확인용 API — Authentication.name에 담긴 이메일을 그대로 반환한다.
+     */
+    @GetMapping("/me")
+    fun getMyInfo(authentication: Authentication): ResponseEntity<BaseResponse<String>> {
+        return ResponseEntity.ok(BaseResponse.ok(authentication.name, "내 정보 조회에 성공했습니다."))
     }
 }

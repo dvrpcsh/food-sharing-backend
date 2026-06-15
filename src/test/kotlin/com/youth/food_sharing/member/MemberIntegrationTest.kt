@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -102,6 +103,37 @@ class MemberIntegrationTest @Autowired constructor(
                     .path("data").path("accessToken").asText()
                 assertFalse(token.isBlank())
             }
+    }
+
+    @Test
+    fun 인증된_유저_내정보_조회_성공() {
+        val signUpRequest = SignUpRequest(
+            email = testEmail,
+            password = "password123",
+            nickname = "테스트유저"
+        )
+        mockMvc.post("/api/v1/members/signup", signUpRequest)
+            .andExpect(status().isCreated)
+
+        val loginRequest = LoginRequest(
+            email = testEmail,
+            password = "password123"
+        )
+
+        val loginResponse = mockMvc.post("/api/v1/members/login", loginRequest)
+            .andExpect(status().isOk)
+            .andReturn()
+
+        val accessToken = objectMapper.readTree(loginResponse.response.contentAsString)
+            .path("data").path("accessToken").asText()
+
+        mockMvc.perform(
+            get("/api/v1/members/me")
+                .header("Authorization", "Bearer $accessToken")
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data").value(testEmail))
     }
 
     private fun MockMvc.post(url: String, body: Any) =
