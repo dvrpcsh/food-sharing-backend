@@ -164,24 +164,26 @@ com/youth/food_sharing/
 | `MemberService` | **Java** | 단일 생성자 주입(Lombok 없음). `signUp`: 중복 체크 → BCrypt 해시 → 저장. `login`: 조회 → 비밀번호 검증 |
 | `MemberController` | Kotlin | Java `MemberService` 생성자 주입. Happy Path만 담당, 예외는 Handler에 위임 |
 
-### Member 엔티티 필드
+### ERD — `members` 테이블 필드 스펙
 
-| 필드 | 타입 | 제약 | 설명 |
+| 필드 (컬럼명) | 타입 | 제약 | 설명 |
 |---|---|---|---|
-| `id` | `Long` | PK, AUTO_INCREMENT | 식별자 |
-| `email` | `String` | UNIQUE, NOT NULL, 100자 | 로그인 키 |
-| `password` | `String` | NOT NULL | BCrypt 해시값 저장 |
-| `nickname` | `String` | NOT NULL, 30자 | 표시 이름 |
-| `phoneNumber` | `String?` | NULL 허용, 20자 | 선택 입력 |
-| `role` | `Role` | NOT NULL, STRING | 기본값 `YOUTH_CUSTOMER` |
-| `createdAt` | `LocalDateTime` | NOT NULL, updatable=false | 가입일 |
-| `updatedAt` | `LocalDateTime` | NOT NULL | 최종 수정일 |
+| `id` | `BIGINT` | PK, AUTO_INCREMENT | 식별자 |
+| `email` | `VARCHAR(100)` | UNIQUE(`uk_member_email`), NOT NULL | 로그인 키 |
+| `password` | `VARCHAR(255)` | NOT NULL | BCrypt 해시값 저장 (평문 저장 금지) |
+| `nickname` | `VARCHAR(30)` | NOT NULL | 표시 이름 |
+| `phone_number` | `VARCHAR(20)` | NULL 허용 | 선택 입력, `010-1234-5678` 또는 `01012345678` 형식 |
+| `role` | `VARCHAR(20)` | NOT NULL, STRING | `YOUTH_CUSTOMER` / `PROVIDER` / `ADMIN`, 기본값 `YOUTH_CUSTOMER` |
+| `created_at` | `DATETIME` | NOT NULL, updatable=false | 가입일 |
+| `updated_at` | `DATETIME` | NOT NULL | 최종 수정일 |
+
+> 테이블/컬럼은 `spring.jpa.hibernate.ddl-auto=update` 설정에 의해 Hibernate가 엔티티 정의로부터 자동 생성·갱신한다.
 
 ### API 엔드포인트
 
 | 메서드 | URL | 요청 Body | 성공 응답 | 실패 응답 |
 |---|---|---|---|---|
-| `POST` | `/api/v1/members/signup` | `SignUpRequest` | `200 { success: true, message: "회원가입이 완료되었습니다." }` | `400 { success: false, message: "이미 사용 중인 이메일..." }` |
+| `POST` | `/api/v1/members/signup` | `SignUpRequest` | `201 { success: true, message: "회원가입이 완료되었습니다." }` | `400 { success: false, message: "이미 사용 중인 이메일..." }` |
 | `POST` | `/api/v1/members/login` | `LoginRequest` | `200 { success: true, message: "로그인에 성공했습니다." }` | `400 { success: false, message: "비밀번호가 일치하지 않습니다." }` |
 
 #### SignUpRequest 필드 검증 규칙
@@ -211,6 +213,35 @@ com/youth/food_sharing/
                              │
                     { success: false, message: "..." }
 ```
+
+---
+
+### 회원가입 요청 흐름 (성공 케이스)
+
+```
+클라이언트
+    │  POST /api/v1/members/signup (SignUpRequest)
+    ▼
+MemberController.signUp()
+    │  @Valid 통과
+    ▼
+MemberService.signUp()  [@Transactional]
+    │  1) memberRepository.existsByEmail()  → 중복이면 IllegalArgumentException
+    │  2) passwordEncoder.encode(password)  → BCrypt 해시
+    │  3) new Member(...)
+    │  4) memberRepository.save(member)     → MySQL members 테이블 INSERT
+    ▼
+201 Created  { success: true, message: "회원가입이 완료되었습니다." }
+```
+
+### 통합 테스트 — `MemberIntegrationTest`
+
+- 위치: `src/test/kotlin/com/youth/food_sharing/member/MemberIntegrationTest.kt`
+- `@SpringBootTest` + `@AutoConfigureMockMvc`로 컨트롤러 → 서비스 → 리포지토리 → **로컬 MySQL(`food_sharing`)** 전체 계층을 실제로 띄워 검증한다 (H2 등 임베디드 DB 미사용).
+- 테스트 케이스
+  - `회원가입_성공()`: 회원가입 요청 시 201 응답 + DB에 Member 저장 + 비밀번호가 BCrypt로 암호화되어 저장되는지 확인
+  - `회원가입_실패_이메일중복()`: 동일 이메일로 재가입 시 `GlobalExceptionHandler`를 통해 400 + 실패 메시지 반환 확인
+- `@AfterEach`에서 테스트용 이메일(`integration-test@example.com`) 데이터를 삭제하여 반복 실행이 가능하도록 정리한다.
 
 ---
 
