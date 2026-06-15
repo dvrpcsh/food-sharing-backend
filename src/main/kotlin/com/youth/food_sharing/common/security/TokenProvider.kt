@@ -1,6 +1,8 @@
 package com.youth.food_sharing.common.security
 
 import com.youth.food_sharing.member.domain.Role
+import io.jsonwebtoken.Claims
+import io.jsonwebtoken.JwtException
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
@@ -35,4 +37,29 @@ class TokenProvider(
             .signWith(secretKey)
             .compact()
     }
+
+    /** 토큰의 서명과 만료 여부를 검증한다. */
+    fun validateToken(token: String): Boolean {
+        return try {
+            parseClaims(token)
+            true
+        } catch (e: JwtException) {
+            false
+        } catch (e: IllegalArgumentException) {
+            false
+        }
+    }
+
+    fun getEmail(token: String): String =
+        parseClaims(token).get("email", String::class.java)
+
+    fun getRole(token: String): Role =
+        Role.valueOf(parseClaims(token).get("role", String::class.java))
+
+    private fun parseClaims(token: String): Claims =
+        Jwts.parser()
+            .verifyWith(secretKey)
+            .build()
+            .parseSignedClaims(token)
+            .payload
 }
