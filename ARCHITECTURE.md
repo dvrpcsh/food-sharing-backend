@@ -128,13 +128,15 @@ com/youth/food_sharing/
 │
 ├── common/
 │   ├── config/
-│   │   └── CryptoConfig.kt              ← BCryptPasswordEncoder @Bean
+│   │   ├── CryptoConfig.kt              ← BCryptPasswordEncoder @Bean (Kotlin)
+│   │   └── SecurityConfig.java          ← SecurityFilterChain 설정 (Java)
 │   ├── dto/
 │   │   └── BaseResponse.kt              ← 공통 응답 포맷 (제네릭)
 │   ├── exception/
 │   │   └── GlobalExceptionHandler.kt    ← 전역 예외 처리기
 │   └── security/
-│       └── TokenProvider.kt             ← JWT Access Token 발급 (Kotlin)
+│       ├── TokenProvider.kt             ← JWT Access Token 발급·검증 (Kotlin)
+│       └── JwtAuthenticationFilter.kt   ← JWT 인증 필터 (Kotlin, OncePerRequestFilter)
 │
 └── member/
     ├── controller/
@@ -158,7 +160,9 @@ com/youth/food_sharing/
 |---|---|---|
 | `BaseResponse<T>` | Kotlin | 모든 API 응답 래퍼. `ok(data)` / `ok(message)` / `fail(message)` 팩토리 메서드 제공 |
 | `GlobalExceptionHandler` | Kotlin | `@Valid` 실패(400), `IllegalArgumentException`(400), 미처리 예외(500)를 `BaseResponse.fail()`로 통일 |
-| `CryptoConfig` | Kotlin | `BCryptPasswordEncoder`를 Spring Bean으로 등록. Spring Security 전체 미사용 |
+| `CryptoConfig` | Kotlin | `BCryptPasswordEncoder`를 Spring Bean으로 등록 |
+| `SecurityConfig` | **Java** | `SecurityFilterChain` 정의. CSRF 비활성화 + STATELESS, `/signup`·`/login`(POST)은 `permitAll()`, 나머지는 `authenticated()`. `JwtAuthenticationFilter`를 `UsernamePasswordAuthenticationFilter` 앞에 등록 |
+| `JwtAuthenticationFilter` | Kotlin | `OncePerRequestFilter` 구현. `Authorization: Bearer <token>` 추출 → `TokenProvider.validateToken()` → 유효하면 email/role로 `UsernamePasswordAuthenticationToken`을 만들어 `SecurityContextHolder`에 세팅 |
 | `Member` | Kotlin | `members` 테이블 매핑 JPA 엔티티. `plugin.jpa`(no-arg) + `allOpen`(@Entity) 플러그인 적용 |
 | `Role` | Kotlin | `YOUTH_CUSTOMER` / `PROVIDER` / `ADMIN` — `EnumType.STRING`으로 DB 저장 |
 | `SignUpRequest` | Kotlin | Bean Validation 적용 (`@field:` 접두사 필수). 이메일·비밀번호·닉네임 필수, 전화번호 선택 |
@@ -190,6 +194,7 @@ com/youth/food_sharing/
 |---|---|---|---|---|
 | `POST` | `/api/v1/members/signup` | `SignUpRequest` | `201 { success: true, message: "회원가입이 완료되었습니다." }` | `400 { success: false, message: "이미 사용 중인 이메일..." }` |
 | `POST` | `/api/v1/members/login` | `LoginRequest` | `200 { success: true, message: "로그인에 성공했습니다.", data: { accessToken, tokenType: "Bearer" } }` | `400 { success: false, message: "비밀번호가 일치하지 않습니다." }` |
+| `GET` | `/api/v1/members/me` | - (`Authorization: Bearer <token>` 헤더 필요) | `200 { success: true, message: "내 정보 조회에 성공했습니다.", data: "<email>" }` | `401/403` (토큰 없음·무효 시 Spring Security가 처리) |
 
 #### SignUpRequest 필드 검증 규칙
 
@@ -247,6 +252,7 @@ MemberService.signUp()  [@Transactional]
   - `회원가입_성공()`: 회원가입 요청 시 201 응답 + DB에 Member 저장 + 비밀번호가 BCrypt로 암호화되어 저장되는지 확인
   - `회원가입_실패_이메일중복()`: 동일 이메일로 재가입 시 `GlobalExceptionHandler`를 통해 400 + 실패 메시지 반환 확인
   - `로그인_성공_JWT_발급()`: 가입된 계정으로 로그인 시 200 응답 + `data.accessToken`/`data.tokenType`("Bearer")이 비어있지 않은 값으로 반환되는지 확인
+  - `인증된_유저_내정보_조회_성공()`: 가입 → 로그인으로 발급받은 Access Token을 `Authorization: Bearer <token>` 헤더에 담아 `GET /api/v1/members/me` 호출 시 200 응답 + `data`에 본인 이메일이 반환되는지 확인
 - `@AfterEach`에서 테스트용 이메일(`integration-test@example.com`) 데이터를 삭제하여 반복 실행이 가능하도록 정리한다.
 
 ---
@@ -256,7 +262,9 @@ MemberService.signUp()  [@Transactional]
 ### 개요
 
 - 로그인 성공 시 `MemberService.login()`이 `TokenProvider`를 통해 JWT Access Token을 발급하고, `TokenResponse`에 담아 `MemberController`가 `BaseResponse.data`로 반환한다.
-- 현재는 Access Token 발급까지만 구현되어 있으며, Refresh Token 발급/재발급, `Authorization` 헤더 기반 인증 필터(`OncePerRequestFilter`)는 추후 도입 예정이다. Spring Security 전체는 아직 미적용.
+- 이후 클라이언트는 발급받은 Access Token을 `Authorization: Bearer <token>` 헤더에 담아 요청하며, `JwtAuthenticationFilter`가 매 요청마다 토큰을 검증해 `SecurityContext`에 인증 정보를 세팅한다.
+- Spring Security(`spring-boot-starter-security`)가 적용되어 `SecurityConfig`의 `SecurityFilterChain`이 인증/인가 규칙을 담당한다. CSRF 비활성화 + `STATELESS` 세션 정책으로 REST API에 맞춘 구성이다.
+- Refresh Token 발급/재발급은 아직 구현되지 않았다 (추후 도입 예정).
 
 ### TokenProvider 설정값 (`application.properties`)
 
@@ -264,6 +272,15 @@ MemberService.signUp()  [@Transactional]
 |---|---|
 | `jwt.secret` | HS256 서명용 비밀키. `Keys.hmacShaKeyFor()`로 `SecretKey` 생성 (운영 환경은 환경변수로 오버라이드 권장) |
 | `jwt.expiration-period` | Access Token 유효 기간 (ms). 현재 `3600000`(1시간) |
+
+### TokenProvider 메서드
+
+| 메서드 | 역할 |
+|---|---|
+| `createAccessToken(email, role)` | Claims에 `email`, `role`을 담아 HS256 서명된 Access Token 생성 |
+| `validateToken(token)` | 서명/만료 여부 검증 (`JwtException`/`IllegalArgumentException` 시 `false`) |
+| `getEmail(token)` | 토큰의 `email` claim 추출 |
+| `getRole(token)` | 토큰의 `role` claim을 `Role` enum으로 변환 |
 
 ### JWT Claims 구조
 
@@ -308,10 +325,60 @@ MemberService.login()  [readOnly 트랜잭션]
 
 | 클래스 | 언어 | 역할 |
 |---|---|---|
-| `TokenProvider` | Kotlin | `jjwt` 라이브러리로 HS256 Access Token 생성 (`common/security`) |
+| `TokenProvider` | Kotlin | `jjwt` 라이브러리로 HS256 Access Token 생성·검증 (`common/security`) |
 | `TokenResponse` | Kotlin | `accessToken`, `tokenType` 필드를 가진 로그인 응답 DTO |
 | `MemberService.login()` | Java | 인증 검증 후 `TokenProvider` 호출, `TokenResponse` 반환 |
 | `MemberController.login()` | Kotlin | `ResponseEntity<BaseResponse<TokenResponse>>` 반환 |
+| `JwtAuthenticationFilter` | Kotlin | 요청별 토큰 검증 및 `SecurityContext` 인증 정보 세팅 (`common/security`) |
+| `SecurityConfig` | Java | `SecurityFilterChain` 및 인가 규칙 정의 (`common/config`) |
+
+---
+
+## Spring Security 필터 체인 & 인증된 요청 흐름
+
+### SecurityConfig 인가 규칙
+
+| 대상 | 규칙 |
+|---|---|
+| `POST /api/v1/members/signup` | `permitAll()` — 인증 없이 접근 가능 |
+| `POST /api/v1/members/login` | `permitAll()` — 인증 없이 접근 가능 |
+| 그 외 모든 요청 | `authenticated()` — 유효한 JWT 필요 |
+| CSRF | 비활성화 (`csrf().disable()`) — REST API + JWT 조합에서는 불필요 |
+| 세션 정책 | `SessionCreationPolicy.STATELESS` — 서버에 세션 저장 안 함 |
+| 필터 순서 | `JwtAuthenticationFilter`를 `UsernamePasswordAuthenticationFilter` 앞에 `addFilterBefore`로 등록 |
+
+### 인증이 필요한 요청 처리 흐름 (`GET /api/v1/members/me` 예시)
+
+```
+클라이언트
+    │  GET /api/v1/members/me
+    │  Header: Authorization: Bearer <accessToken>
+    ▼
+JwtAuthenticationFilter.doFilterInternal()
+    │  1) resolveToken()                → "Authorization" 헤더에서 "Bearer " 접두사 제거 후 토큰 추출
+    │  2) tokenProvider.validateToken() → 서명/만료 검증
+    │       │ valid                          │ invalid / 토큰 없음
+    │       ▼                                 ▼
+    │  3) email = getEmail(token)        그대로 다음 필터로 통과
+    │     role  = getRole(token)         (SecurityContext 비어 있음)
+    │  4) UsernamePasswordAuthenticationToken(
+    │       principal = email,
+    │       credentials = null,
+    │       authorities = ["ROLE_<role>"]
+    │     )
+    │  5) SecurityContextHolder.getContext().authentication = ⬆
+    ▼
+SecurityConfig의 authorizeHttpRequests
+    │  anyRequest().authenticated()
+    │       │ 인증 정보 있음                  │ 인증 정보 없음
+    │       ▼                                 ▼
+    ▼                                    401/403 응답
+MemberController.getMyInfo(authentication)
+    │  authentication.name == email
+    ▼
+200 OK
+{ success: true, message: "내 정보 조회에 성공했습니다.", data: "<email>" }
+```
 
 ---
 
