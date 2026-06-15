@@ -30,7 +30,7 @@ data class SignUpRequest(
 
     /** 선택 입력 — 전화번호 형식: 010-1234-5678 또는 01012345678 */
     @field:Pattern(
-        regexp = "^01[016789]-?\d{3,4}-?\d{4}$",
+        regexp = "^01[016789]-?\\d{3,4}-?\\d{4}$",
         message = "올바른 전화번호 형식이 아닙니다."
     )
     val phoneNumber: String? = null,

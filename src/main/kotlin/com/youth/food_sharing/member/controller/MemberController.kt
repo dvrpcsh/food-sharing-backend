@@ -5,6 +5,7 @@ import com.youth.food_sharing.member.dto.LoginRequest
 import com.youth.food_sharing.member.dto.SignUpRequest
 import com.youth.food_sharing.member.service.MemberService
 import jakarta.validation.Valid
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -36,7 +37,7 @@ class MemberController(
         @Valid @RequestBody request: SignUpRequest
     ): ResponseEntity<BaseResponse<Nothing>> {
         memberService.signUp(request)
-        return ResponseEntity.ok(BaseResponse.ok("회원가입이 완료되었습니다."))
+        return ResponseEntity.status(HttpStatus.CREATED).body(BaseResponse.ok("회원가입이 완료되었습니다."))
     }
 
     /**
