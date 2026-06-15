@@ -3,6 +3,7 @@ package com.youth.food_sharing.member.controller
 import com.youth.food_sharing.common.dto.BaseResponse
 import com.youth.food_sharing.member.dto.LoginRequest
 import com.youth.food_sharing.member.dto.SignUpRequest
+import com.youth.food_sharing.member.dto.TokenResponse
 import com.youth.food_sharing.member.service.MemberService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -44,15 +45,14 @@ class MemberController(
      * POST /api/v1/members/login
      *
      * 요청 흐름:
-     *   [LoginRequest @Valid 검증] → MemberService.login() → 200 OK
+     *   [LoginRequest @Valid 검증] → MemberService.login() → 200 OK + TokenResponse
      * 이메일 미존재 또는 비밀번호 불일치 시 GlobalExceptionHandler가 400 Bad Request 반환
-     * JWT 도입 후 data 필드에 TokenResponse를 담아 반환하도록 확장 예정
      */
     @PostMapping("/login")
     fun login(
         @Valid @RequestBody request: LoginRequest
-    ): ResponseEntity<BaseResponse<Nothing>> {
-        memberService.login(request)
-        return ResponseEntity.ok(BaseResponse.ok("로그인에 성공했습니다."))
+    ): ResponseEntity<BaseResponse<TokenResponse>> {
+        val tokenResponse = memberService.login(request)
+        return ResponseEntity.ok(BaseResponse.ok(tokenResponse, "로그인에 성공했습니다."))
     }
 }

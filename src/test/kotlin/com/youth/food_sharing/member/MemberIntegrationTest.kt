@@ -1,9 +1,11 @@
 package com.youth.food_sharing.member
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.youth.food_sharing.member.dto.LoginRequest
 import com.youth.food_sharing.member.dto.SignUpRequest
 import com.youth.food_sharing.member.repository.MemberRepository
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -73,6 +75,33 @@ class MemberIntegrationTest @Autowired constructor(
             .andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.success").value(false))
             .andExpect(jsonPath("$.message").value("이미 사용 중인 이메일입니다: $testEmail"))
+    }
+
+    @Test
+    fun 로그인_성공_JWT_발급() {
+        val signUpRequest = SignUpRequest(
+            email = testEmail,
+            password = "password123",
+            nickname = "테스트유저"
+        )
+        mockMvc.post("/api/v1/members/signup", signUpRequest)
+            .andExpect(status().isCreated)
+
+        val loginRequest = LoginRequest(
+            email = testEmail,
+            password = "password123"
+        )
+
+        mockMvc.post("/api/v1/members/login", loginRequest)
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.accessToken").isNotEmpty)
+            .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+            .andDo {
+                val token = objectMapper.readTree(it.response.contentAsString)
+                    .path("data").path("accessToken").asText()
+                assertFalse(token.isBlank())
+            }
     }
 
     private fun MockMvc.post(url: String, body: Any) =
