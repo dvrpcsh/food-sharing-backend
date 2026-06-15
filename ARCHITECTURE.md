@@ -131,8 +131,10 @@ com/youth/food_sharing/
 │   │   └── CryptoConfig.kt              ← BCryptPasswordEncoder @Bean
 │   ├── dto/
 │   │   └── BaseResponse.kt              ← 공통 응답 포맷 (제네릭)
-│   └── exception/
-│       └── GlobalExceptionHandler.kt    ← 전역 예외 처리기
+│   ├── exception/
+│   │   └── GlobalExceptionHandler.kt    ← 전역 예외 처리기
+│   └── security/
+│       └── TokenProvider.kt             ← JWT Access Token 발급 (Kotlin)
 │
 └── member/
     ├── controller/
@@ -142,7 +144,8 @@ com/youth/food_sharing/
     │   └── Role.kt                      ← 권한 Enum
     ├── dto/
     │   ├── SignUpRequest.kt             ← 회원가입 요청 DTO
-    │   └── LoginRequest.kt              ← 로그인 요청 DTO
+    │   ├── LoginRequest.kt              ← 로그인 요청 DTO
+    │   └── TokenResponse.kt             ← 로그인 성공 응답 DTO (JWT)
     ├── repository/
     │   └── MemberRepository.kt          ← JPA Repository (Kotlin interface)
     └── service/
@@ -161,7 +164,9 @@ com/youth/food_sharing/
 | `SignUpRequest` | Kotlin | Bean Validation 적용 (`@field:` 접두사 필수). 이메일·비밀번호·닉네임 필수, 전화번호 선택 |
 | `LoginRequest` | Kotlin | 이메일 + 비밀번호 검증 |
 | `MemberRepository` | Kotlin | `findByEmail()`, `existsByEmail()` 쿼리 메서드 제공 |
-| `MemberService` | **Java** | 단일 생성자 주입(Lombok 없음). `signUp`: 중복 체크 → BCrypt 해시 → 저장. `login`: 조회 → 비밀번호 검증 |
+| `TokenProvider` | Kotlin | `jwt.secret` / `jwt.expiration-period`를 주입받아 HS256 JWT Access Token 발급. Claim에 `email`, `role` 포함 |
+| `TokenResponse` | Kotlin | 로그인 성공 응답 DTO. `accessToken`, `tokenType`(기본값 `Bearer`) |
+| `MemberService` | **Java** | 단일 생성자 주입(Lombok 없음). `signUp`: 중복 체크 → BCrypt 해시 → 저장. `login`: 조회 → 비밀번호 검증 → `TokenProvider`로 JWT 발급 후 `TokenResponse` 반환 |
 | `MemberController` | Kotlin | Java `MemberService` 생성자 주입. Happy Path만 담당, 예외는 Handler에 위임 |
 
 ### ERD — `members` 테이블 필드 스펙
@@ -184,7 +189,7 @@ com/youth/food_sharing/
 | 메서드 | URL | 요청 Body | 성공 응답 | 실패 응답 |
 |---|---|---|---|---|
 | `POST` | `/api/v1/members/signup` | `SignUpRequest` | `201 { success: true, message: "회원가입이 완료되었습니다." }` | `400 { success: false, message: "이미 사용 중인 이메일..." }` |
-| `POST` | `/api/v1/members/login` | `LoginRequest` | `200 { success: true, message: "로그인에 성공했습니다." }` | `400 { success: false, message: "비밀번호가 일치하지 않습니다." }` |
+| `POST` | `/api/v1/members/login` | `LoginRequest` | `200 { success: true, message: "로그인에 성공했습니다.", data: { accessToken, tokenType: "Bearer" } }` | `400 { success: false, message: "비밀번호가 일치하지 않습니다." }` |
 
 #### SignUpRequest 필드 검증 규칙
 
@@ -241,7 +246,72 @@ MemberService.signUp()  [@Transactional]
 - 테스트 케이스
   - `회원가입_성공()`: 회원가입 요청 시 201 응답 + DB에 Member 저장 + 비밀번호가 BCrypt로 암호화되어 저장되는지 확인
   - `회원가입_실패_이메일중복()`: 동일 이메일로 재가입 시 `GlobalExceptionHandler`를 통해 400 + 실패 메시지 반환 확인
+  - `로그인_성공_JWT_발급()`: 가입된 계정으로 로그인 시 200 응답 + `data.accessToken`/`data.tokenType`("Bearer")이 비어있지 않은 값으로 반환되는지 확인
 - `@AfterEach`에서 테스트용 이메일(`integration-test@example.com`) 데이터를 삭제하여 반복 실행이 가능하도록 정리한다.
+
+---
+
+## JWT 인증 흐름
+
+### 개요
+
+- 로그인 성공 시 `MemberService.login()`이 `TokenProvider`를 통해 JWT Access Token을 발급하고, `TokenResponse`에 담아 `MemberController`가 `BaseResponse.data`로 반환한다.
+- 현재는 Access Token 발급까지만 구현되어 있으며, Refresh Token 발급/재발급, `Authorization` 헤더 기반 인증 필터(`OncePerRequestFilter`)는 추후 도입 예정이다. Spring Security 전체는 아직 미적용.
+
+### TokenProvider 설정값 (`application.properties`)
+
+| 키 | 설명 |
+|---|---|
+| `jwt.secret` | HS256 서명용 비밀키. `Keys.hmacShaKeyFor()`로 `SecretKey` 생성 (운영 환경은 환경변수로 오버라이드 권장) |
+| `jwt.expiration-period` | Access Token 유효 기간 (ms). 현재 `3600000`(1시간) |
+
+### JWT Claims 구조
+
+| Claim | 값 | 설명 |
+|---|---|---|
+| `sub` (subject) | `member.email` | 토큰 주체 |
+| `email` | `member.email` | 사용자 이메일 |
+| `role` | `member.role.name` (`Role` enum의 문자열) | 사용자 권한 — `YOUTH_CUSTOMER` / `PROVIDER` / `ADMIN` |
+| `iat` | 토큰 발급 시각 | |
+| `exp` | `iat + jwt.expiration-period` | 만료 시각 |
+
+### 로그인 → JWT 발급 흐름
+
+```
+클라이언트
+    │  POST /api/v1/members/login (LoginRequest)
+    ▼
+MemberController.login()
+    │  @Valid 통과
+    ▼
+MemberService.login()  [readOnly 트랜잭션]
+    │  1) memberRepository.findByEmail()     → 미존재 시 IllegalArgumentException
+    │  2) passwordEncoder.matches()          → 불일치 시 IllegalArgumentException
+    │  3) tokenProvider.createAccessToken(email, role)
+    │       └─ Jwts.builder()
+    │            .subject(email)
+    │            .claim("email", email)
+    │            .claim("role", role.name)
+    │            .issuedAt(now) / .expiration(now + expirationPeriod)
+    │            .signWith(secretKey)  // HS256
+    │  4) new TokenResponse(accessToken, "Bearer")
+    ▼
+200 OK
+{
+  success: true,
+  message: "로그인에 성공했습니다.",
+  data: { accessToken: "<JWT>", tokenType: "Bearer" }
+}
+```
+
+### 관련 클래스
+
+| 클래스 | 언어 | 역할 |
+|---|---|---|
+| `TokenProvider` | Kotlin | `jjwt` 라이브러리로 HS256 Access Token 생성 (`common/security`) |
+| `TokenResponse` | Kotlin | `accessToken`, `tokenType` 필드를 가진 로그인 응답 DTO |
+| `MemberService.login()` | Java | 인증 검증 후 `TokenProvider` 호출, `TokenResponse` 반환 |
+| `MemberController.login()` | Kotlin | `ResponseEntity<BaseResponse<TokenResponse>>` 반환 |
 
 ---
 
