@@ -1,8 +1,10 @@
 package com.youth.food_sharing.member.service;
 
+import com.youth.food_sharing.common.security.TokenProvider;
 import com.youth.food_sharing.member.domain.Member;
 import com.youth.food_sharing.member.dto.LoginRequest;
 import com.youth.food_sharing.member.dto.SignUpRequest;
+import com.youth.food_sharing.member.dto.TokenResponse;
 import com.youth.food_sharing.member.repository.MemberRepository;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,10 +29,12 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final TokenProvider tokenProvider;
 
-    public MemberService(MemberRepository memberRepository, BCryptPasswordEncoder passwordEncoder) {
+    public MemberService(MemberRepository memberRepository, BCryptPasswordEncoder passwordEncoder, TokenProvider tokenProvider) {
         this.memberRepository = memberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.tokenProvider = tokenProvider;
     }
 
     /**
@@ -67,12 +71,11 @@ public class MemberService {
     /**
      * 로그인
      *
-     * 흐름: 이메일로 회원 조회 → BCrypt 비밀번호 검증
-     * JWT 발급은 다음 단계에서 구현 예정 — 현재는 검증만 수행
+     * 흐름: 이메일로 회원 조회 → BCrypt 비밀번호 검증 → JWT Access Token 발급
      *
      * @throws IllegalArgumentException 이메일 미존재 또는 비밀번호 불일치 시
      */
-    public void login(LoginRequest request) {
+    public TokenResponse login(LoginRequest request) {
         // 보안 원칙: 이메일 미존재와 비밀번호 불일치 메시지를 의도적으로 구분
         // (실제 운영에서는 "이메일 또는 비밀번호를 확인하세요."로 통합하는 것이 보안상 권장됨)
         Member member = memberRepository.findByEmail(request.getEmail())
@@ -82,6 +85,8 @@ public class MemberService {
             throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
         }
 
-        // TODO: JWT 토큰 생성 후 반환 타입을 TokenResponse로 변경 예정
+        String accessToken = tokenProvider.createAccessToken(member.getEmail(), member.getRole());
+
+        return new TokenResponse(accessToken, "Bearer");
     }
 }
