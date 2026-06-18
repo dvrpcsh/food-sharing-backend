@@ -1,6 +1,7 @@
 package com.youth.food_sharing.common.exception
 
 import com.youth.food_sharing.common.dto.BaseResponse
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
  */
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+    private val logger = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
 
     /**
      * @Valid 검증 실패 처리 (400 Bad Request)
@@ -50,6 +53,7 @@ class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception::class)
     fun handleException(e: Exception): ResponseEntity<BaseResponse<Nothing>> {
+        logger.error("예기치 못한 서버 오류가 발생했습니다.", e)
         return ResponseEntity
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(BaseResponse.fail("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."))
