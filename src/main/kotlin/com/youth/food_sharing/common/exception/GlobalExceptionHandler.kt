@@ -30,6 +30,7 @@ class GlobalExceptionHandler {
     fun handleValidationException(e: MethodArgumentNotValidException): ResponseEntity<BaseResponse<Nothing>> {
         val message = e.bindingResult.fieldErrors
             .joinToString(", ") { "${it.field}: ${it.defaultMessage}" }
+        logger.warn("요청 검증 실패: {}", message)
         return ResponseEntity.badRequest().body(BaseResponse.fail(message))
     }
 
@@ -42,6 +43,7 @@ class GlobalExceptionHandler {
      */
     @ExceptionHandler(IllegalArgumentException::class)
     fun handleIllegalArgumentException(e: IllegalArgumentException): ResponseEntity<BaseResponse<Nothing>> {
+        logger.warn("비즈니스 규칙 위반: {}", e.message)
         return ResponseEntity.badRequest().body(BaseResponse.fail(e.message ?: "잘못된 요청입니다."))
     }
 
