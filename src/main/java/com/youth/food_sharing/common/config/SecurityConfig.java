@@ -14,7 +14,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * Spring Security 설정
  *
  * - CSRF 비활성화 + STATELESS 세션 정책: JWT 기반 REST API에 맞춤
- * - 회원가입/로그인은 인증 없이 접근 가능, 나머지는 인증 필요
+ * - 회원가입/로그인, 게시글 목록 조회(GET)는 인증 없이 접근 가능, 나머지는 인증 필요
  * - JwtAuthenticationFilter를 UsernamePasswordAuthenticationFilter 앞에 배치하여
  *   요청별로 SecurityContext에 인증 정보를 세팅한다.
  */
@@ -35,6 +35,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/posts").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
